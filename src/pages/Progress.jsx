@@ -91,7 +91,7 @@ export default function Progress() {
   const [runs, setRuns] = useState([]);
   const [workouts, setWorkouts] = useState([]);
   const [goals, setGoals] = useState([]);
-  const [timeframe, setTimeframe] = useState('weekly'); // 'weekly' | 'monthly'
+  const [timeframe, setTimeframe] = useState('7d'); // '7d' | '30d' | '90d'
 
   // Weight Log Modal
   const [weightModalOpen, setWeightModalOpen] = useState(false);
@@ -120,7 +120,7 @@ export default function Progress() {
     loadData();
   }, [user]);
 
-  const periodDays = timeframe === 'weekly' ? 7 : 30;
+  const periodDays = timeframe === '7d' ? 7 : timeframe === '30d' ? 30 : 90;
 
   // 1. Weight Chart & Period Comparison
   const weightMetrics = useMemo(() => {
@@ -151,7 +151,7 @@ export default function Progress() {
   // 2. Running Distance Chart & Period Comparison
   const runningMetrics = useMemo(() => {
     const buckets = [];
-    if (timeframe === 'weekly') {
+    if (timeframe === '7d') {
       for (let i = 6; i >= 0; i--) {
         const d = getDateDaysAgo(i);
         const key = getLocalDateString(d);
@@ -164,8 +164,9 @@ export default function Progress() {
         });
       }
     } else {
-      // 4 weekly buckets covering the last 28 days
-      for (let w = 3; w >= 0; w--) {
+      // weekly buckets for 30d / 90d
+      const weeks = timeframe === '30d' ? 4 : 13;
+      for (let w = weeks - 1; w >= 0; w--) {
         const start = getLocalDateString(getDateDaysAgo(w * 7 + 6));
         const end = getLocalDateString(getDateDaysAgo(w * 7));
         const weekKm = runs
@@ -202,7 +203,7 @@ export default function Progress() {
   // 3. Workout Activity Chart & Period Comparison
   const workoutMetrics = useMemo(() => {
     const buckets = [];
-    if (timeframe === 'weekly') {
+    if (timeframe === '7d') {
       for (let i = 6; i >= 0; i--) {
         const d = getDateDaysAgo(i);
         const key = getLocalDateString(d);
@@ -215,7 +216,8 @@ export default function Progress() {
         });
       }
     } else {
-      for (let w = 3; w >= 0; w--) {
+      const weeks = timeframe === '30d' ? 4 : 13;
+      for (let w = weeks - 1; w >= 0; w--) {
         const start = getLocalDateString(getDateDaysAgo(w * 7 + 6));
         const end = getLocalDateString(getDateDaysAgo(w * 7));
         const weekMins = workouts
@@ -349,17 +351,24 @@ export default function Progress() {
           <div className="segmented-toggle" role="group" aria-label="Timeframe filter">
             <button
               type="button"
-              className={`segmented-btn ${timeframe === 'weekly' ? 'active' : ''}`}
-              onClick={() => setTimeframe('weekly')}
+              className={`segmented-btn ${timeframe === '7d' ? 'active' : ''}`}
+              onClick={() => setTimeframe('7d')}
             >
-              Weekly
+              7 Days
             </button>
             <button
               type="button"
-              className={`segmented-btn ${timeframe === 'monthly' ? 'active' : ''}`}
-              onClick={() => setTimeframe('monthly')}
+              className={`segmented-btn ${timeframe === '30d' ? 'active' : ''}`}
+              onClick={() => setTimeframe('30d')}
             >
-              Monthly
+              30 Days
+            </button>
+            <button
+              type="button"
+              className={`segmented-btn ${timeframe === '90d' ? 'active' : ''}`}
+              onClick={() => setTimeframe('90d')}
+            >
+              90 Days
             </button>
           </div>
 
@@ -409,16 +418,16 @@ export default function Progress() {
                   unit=" kg"
                 />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', color: '#f8fafc' }}
+                  contentStyle={{ backgroundColor: '#1B2940', borderColor: '#233150', borderRadius: '10px', color: '#F4F7F2', fontFamily: 'Manrope' }}
                   formatter={(val) => [`${val} kg`, 'Weight']}
                 />
                 <Line
                   type="monotone"
                   dataKey="weight"
-                  stroke="#06b6d4"
+                  stroke="#B7F34A"
                   strokeWidth={2.5}
-                  dot={{ fill: '#06b6d4', r: 4 }}
-                  activeDot={{ r: 6 }}
+                  dot={{ fill: '#B7F34A', r: 4, strokeWidth: 0 }}
+                  activeDot={{ r: 6, fill: '#B7F34A' }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -456,10 +465,10 @@ export default function Progress() {
                 <XAxis dataKey="label" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} />
                 <YAxis stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} tickCount={4} unit=" km" />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', color: '#f8fafc' }}
+                  contentStyle={{ backgroundColor: '#1B2940', borderColor: '#233150', borderRadius: '10px', color: '#F4F7F2', fontFamily: 'Manrope' }}
                   formatter={(val) => [`${val} km`, 'Distance']}
                 />
-                <Bar dataKey="distance" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={36} />
+                <Bar dataKey="distance" fill="#B7F34A" radius={[6, 6, 0, 0]} maxBarSize={40} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -468,7 +477,7 @@ export default function Progress() {
 
           <p className="chart-explanation">
             Total of <strong>{runningMetrics.currentTotal} km</strong> logged in the selected{' '}
-            {timeframe === 'weekly' ? '7-day' : '30-day'} window.
+            {timeframe === '7d' ? '7-day' : timeframe === '30d' ? '30-day' : '90-day'} window.
           </p>
         </div>
 
@@ -492,10 +501,10 @@ export default function Progress() {
                 <XAxis dataKey="label" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} />
                 <YAxis stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} tickCount={4} unit="m" />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', color: '#f8fafc' }}
+                  contentStyle={{ backgroundColor: '#1B2940', borderColor: '#233150', borderRadius: '10px', color: '#F4F7F2', fontFamily: 'Manrope' }}
                   formatter={(val) => [`${val} mins`, 'Duration']}
                 />
-                <Bar dataKey="minutes" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={36} />
+                <Bar dataKey="minutes" fill="#36C99A" radius={[6, 6, 0, 0]} maxBarSize={40} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -504,8 +513,8 @@ export default function Progress() {
 
           <p className="chart-explanation">
             Completed <strong>{workoutMetrics.currentCount}</strong> session
-            {workoutMetrics.currentCount === 1 ? '' : 's'} ({workoutMetrics.currentMins} mins total) this{' '}
-            {timeframe === 'weekly' ? 'week' : 'month'}.
+            {workoutMetrics.currentCount === 1 ? '' : 's'} ({workoutMetrics.currentMins} mins total) in the last{' '}
+            {timeframe === '7d' ? '7 days' : timeframe === '30d' ? '30 days' : '90 days'}.
           </p>
         </div>
       </section>

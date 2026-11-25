@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   User,
   Mail,
@@ -10,9 +10,13 @@ import {
   Save,
   ShieldCheck,
   Download,
-  AlertCircle,
   Sparkles,
-  CheckCircle2
+  CheckCircle2,
+  Camera,
+  Trophy,
+  Plus,
+  Trash2,
+  Award
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -21,13 +25,16 @@ import {
   getWorkouts,
   getMeals,
   getWeights,
-  getGoals
+  getGoals,
+  saveGoal,
+  deleteGoal
 } from '../services/storageService';
-import { calculateBMI } from '../utils/calculations';
+import { calculateBMI, formatDuration } from '../utils/calculations';
 
 export default function Profile() {
   const { user, updateProfile } = useAuth();
   const { showToast } = useToast();
+  const fileInputRef = useRef(null);
 
   const [form, setForm] = useState({
     name: user?.name || '',
@@ -41,10 +48,63 @@ export default function Profile() {
   });
 
   const [saving, setSaving] = useState(false);
+  const [runs, setRuns] = useState([]);
+  const [workouts, setWorkouts] = useState([]);
+  const [goals, setGoals] = useState([]);
+  const [newGoal, setNewGoal] = useState({ title: '', category: 'Running', targetValue: '', unit: 'km' });
+
+  useEffect(() => {
+    if (!user?.id) return;
+    setRuns(getRuns(user.id));
+    setWorkouts(getWorkouts(user.id));
+    setGoals(getGoals(user.id));
+  }, [user]);
+
+  const personalRecords = useMemo(() => {
+    const longestRun = runs.reduce((max, r) => Math.max(max, Number(r.distance) || 0), 0);
+    const totalDistance = runs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
+    const longestDuration = runs.reduce((max, r) => Math.max(max, Number(r.duration) || 0), 0);
+    const totalCaloriesBurned = [
+      ...runs.map((r) => Number(r.calories) || 0),
+      ...workouts.map((w) => Number(w.calories) || 0)
+    ].reduce((s, c) => s + c, 0);
+
+    return {
+      longestRun: longestRun.toFixed(1),
+      totalDistance: totalDistance.toFixed(1),
+      longestDuration: longestDuration ? formatDuration(longestDuration) : '--',
+      totalWorkouts: workouts.length,
+      totalCaloriesBurned
+    };
+  }, [runs, workouts]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleAvatarUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please select a valid image file.', 'error');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Image must be smaller than 2 MB.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        updateProfile({ avatar: reader.result });
+        showToast('Profile picture updated!', 'success');
+      } catch (err) {
+        showToast(err.message || 'Could not save profile picture.', 'error');
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e) => {
@@ -72,6 +132,29 @@ export default function Profile() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleAddGoal = (e) => {
+    e.preventDefault();
+    if (!newGoal.title.trim() || !newGoal.targetValue || Number(newGoal.targetValue) <= 0) {
+      showToast('Please enter a valid goal title and target value.', 'error');
+      return;
+    }
+    saveGoal(user.id, {
+      title: newGoal.title.trim(),
+      category: newGoal.category,
+      targetValue: Number(newGoal.targetValue),
+      unit: newGoal.unit
+    });
+    setGoals(getGoals(user.id));
+    setNewGoal({ title: '', category: 'Running', targetValue: '', unit: 'km' });
+    showToast('Fitness goal added!', 'success');
+  };
+
+  const handleDeleteGoal = (goalId) => {
+    deleteGoal(user.id, goalId);
+    setGoals(getGoals(user.id));
+    showToast('Goal removed.', 'info');
   };
 
   // Export personal fitness data as a JSON file
@@ -105,12 +188,34 @@ export default function Profile() {
     <div className="profile-page">
       {/* Profile Header Card */}
       <div className="profile-header-card">
-        <div className="profile-avatar-large">
-          {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
+        <div className="profile-avatar-wrap">
+          <div className="profile-avatar-large">
+            {user?.avatar ? (
+              <img src={user.avatar} alt={user.name} className="avatar-img" />
+            ) : (
+              user?.name ? user.name.charAt(0).toUpperCase() : 'U'
+            )}
+          </div>
+          <button
+            type="button"
+            className="profile-avatar-upload-btn"
+            onClick={() => fileInputRef.current?.click()}
+            title="Upload profile picture"
+          >
+            <Camera size={14} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleAvatarUpload}
+            style={{ display: 'none' }}
+          />
         </div>
+
         <div className="profile-header-info">
           <div className="profile-tag">
-            <Sparkles size={14} className="text-emerald-400" />
+            <Sparkles size={14} className="text-lime-400" />
             <span>ATHLETE PROFILE</span>
           </div>
           <h2 className="profile-display-name">{user?.name}</h2>
@@ -132,12 +237,44 @@ export default function Profile() {
         </button>
       </div>
 
-      {/* Profile Edit Form */}
+      {/* Personal Records Strip */}
+      <div className="profile-records-grid">
+        <div className="profile-record-card">
+          <Trophy size={20} style={{ color: '#B7F34A' }} />
+          <div>
+            <span className="profile-record-val">{personalRecords.longestRun} km</span>
+            <span className="profile-record-lbl">Longest Run</span>
+          </div>
+        </div>
+        <div className="profile-record-card">
+          <Activity size={20} style={{ color: '#36C99A' }} />
+          <div>
+            <span className="profile-record-val">{personalRecords.totalDistance} km</span>
+            <span className="profile-record-lbl">Total Distance</span>
+          </div>
+        </div>
+        <div className="profile-record-card">
+          <Award size={20} style={{ color: '#F3A64A' }} />
+          <div>
+            <span className="profile-record-val">{personalRecords.longestDuration}</span>
+            <span className="profile-record-lbl">Longest Session</span>
+          </div>
+        </div>
+        <div className="profile-record-card">
+          <Sparkles size={20} style={{ color: '#8b5cf6' }} />
+          <div>
+            <span className="profile-record-val">{personalRecords.totalWorkouts}</span>
+            <span className="profile-record-lbl">Workouts Logged</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Profile Edit Form & Goals */}
       <div className="profile-content-grid">
         <div className="profile-form-card">
           <div className="form-card-header">
-            <h3 className="section-title">Personal Information & Biometrics</h3>
-            <p className="section-subtitle">Keep your physical metrics accurate for calorie & BMI computations</p>
+            <h3 className="section-title">Personal Information &amp; Biometrics</h3>
+            <p className="section-subtitle">Keep your physical metrics accurate for calorie &amp; BMI computations</p>
           </div>
 
           <form onSubmit={handleSubmit} className="profile-form">
@@ -299,21 +436,87 @@ export default function Profile() {
           </form>
         </div>
 
-        {/* Security & Academic Project Disclaimer */}
-        <div className="profile-side-card">
-          <div className="security-notice-box">
-            <div className="notice-icon-row">
-              <ShieldCheck size={22} className="text-emerald-400" />
-              <h4 className="notice-title">University Demonstration Architecture</h4>
+        {/* Side Column: Fitness Goals Management + Architecture Note */}
+        <div className="profile-side-col">
+          <div className="profile-side-card">
+            <h4 className="section-title" style={{ marginBottom: '0.75rem' }}>Fitness Goals</h4>
+            <form onSubmit={handleAddGoal} className="profile-goal-form">
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Goal title (e.g. Run 20 km)"
+                value={newGoal.title}
+                onChange={(e) => setNewGoal({ ...newGoal, title: e.target.value })}
+              />
+              <div className="profile-goal-row">
+                <select
+                  className="form-input form-select"
+                  value={newGoal.category}
+                  onChange={(e) => {
+                    const cat = e.target.value;
+                    const unit = cat === 'Running' ? 'km' : cat === 'Weight' ? 'kg' : 'sessions';
+                    setNewGoal({ ...newGoal, category: cat, unit });
+                  }}
+                >
+                  <option value="Running">Running</option>
+                  <option value="Workout">Workout</option>
+                  <option value="Weight">Weight</option>
+                </select>
+                <input
+                  type="number"
+                  step="0.1"
+                  className="form-input"
+                  placeholder="Target"
+                  value={newGoal.targetValue}
+                  onChange={(e) => setNewGoal({ ...newGoal, targetValue: e.target.value })}
+                />
+                <button type="submit" className="btn btn-primary" aria-label="Add goal">
+                  <Plus size={16} />
+                </button>
+              </div>
+            </form>
+
+            <div className="profile-goals-list">
+              {goals.length === 0 ? (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No goals added yet.</p>
+              ) : (
+                goals.map((g) => (
+                  <div key={g.id} className="profile-goal-item">
+                    <div>
+                      <div className="profile-goal-title">{g.title}</div>
+                      <div className="profile-goal-meta">
+                        {g.category} · Target: {g.targetValue} {g.unit}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteGoal(g.id)}
+                      className="btn-icon-danger"
+                      title="Delete goal"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
-            <p className="notice-body">
-              This application was developed as a university second-year project. All authentication, credentials, and fitness records are persisted client-side in browser <strong>LocalStorage</strong> and isolated per user ID.
-            </p>
-            <ul className="notice-bullets">
-              <li><CheckCircle2 size={14} className="text-emerald-400" /> User-specific data isolation</li>
-              <li><CheckCircle2 size={14} className="text-emerald-400" /> Safe SessionStorage login lifecycle</li>
-              <li><CheckCircle2 size={14} className="text-emerald-400" /> Offline data resilience</li>
-            </ul>
+          </div>
+
+          <div className="profile-side-card">
+            <div className="security-notice-box">
+              <div className="notice-icon-row">
+                <ShieldCheck size={22} className="text-emerald-400" />
+                <h4 className="notice-title">Local Storage Persistence</h4>
+              </div>
+              <p className="notice-body">
+                All profile metrics, workouts, runs, and goals are stored client-side in your browser&apos;s <strong>LocalStorage</strong> and isolated per user ID.
+              </p>
+              <ul className="notice-bullets">
+                <li><CheckCircle2 size={14} className="text-emerald-400" /> User-specific data isolation</li>
+                <li><CheckCircle2 size={14} className="text-emerald-400" /> SessionStorage login lifecycle</li>
+                <li><CheckCircle2 size={14} className="text-emerald-400" /> JSON export backup anytime</li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
