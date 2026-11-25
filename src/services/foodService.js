@@ -113,6 +113,8 @@ function normalizeProduct(product, rawBarcode = '') {
   const protein = parseFloat(Number(nutriments['proteins_100g'] || nutriments['proteins'] || 0).toFixed(1));
   const carbs = parseFloat(Number(nutriments['carbohydrates_100g'] || nutriments['carbohydrates'] || 0).toFixed(1));
   const fat = parseFloat(Number(nutriments['fat_100g'] || nutriments['fat'] || 0).toFixed(1));
+  const fiber = parseFloat(Number(nutriments['fiber_100g'] || nutriments['fiber'] || 0).toFixed(1));
+  const sugar = parseFloat(Number(nutriments['sugars_100g'] || nutriments['sugars'] || 0).toFixed(1));
 
   return {
     name: product.product_name || product.generic_name || 'Unnamed Food Product',
@@ -124,6 +126,8 @@ function normalizeProduct(product, rawBarcode = '') {
     protein,
     carbs,
     fat,
+    fiber,
+    sugar,
     nutriscore: product.nutriscore_grade ? product.nutriscore_grade.toUpperCase() : null,
     categories: product.categories || 'Food'
   };
@@ -221,4 +225,42 @@ export async function searchFoodByName(query) {
         f.brand.toLowerCase().includes(cleanQuery)
     );
   }
+}
+
+/**
+ * Scale an AI-detected or portion-based food item when its weight in grams changes.
+ */
+export function scaleItemByGrams(item, newGrams) {
+  const safeGrams = Math.max(1, Number(newGrams) || 1);
+  const baseGrams = Math.max(1, Number(item.baseGrams) || Number(item.portionGrams) || 100);
+  const ratio = safeGrams / baseGrams;
+
+  return {
+    ...item,
+    portionGrams: safeGrams,
+    portion: `${safeGrams}g`,
+    calories: Math.round((item.baseCalories ?? item.calories ?? 0) * ratio),
+    protein: parseFloat(((item.baseProtein ?? item.protein ?? 0) * ratio).toFixed(1)),
+    carbs: parseFloat(((item.baseCarbs ?? item.carbs ?? 0) * ratio).toFixed(1)),
+    fat: parseFloat(((item.baseFat ?? item.fat ?? 0) * ratio).toFixed(1)),
+    fiber: parseFloat(((item.baseFiber ?? item.fiber ?? 0) * ratio).toFixed(1)),
+    sugar: parseFloat(((item.baseSugar ?? item.sugar ?? 0) * ratio).toFixed(1))
+  };
+}
+
+/**
+ * Sum nutritional totals across a list of food items.
+ */
+export function calculateMealTotals(items = []) {
+  return items.reduce(
+    (acc, item) => ({
+      calories: acc.calories + Math.round(Number(item.calories) || 0),
+      protein: parseFloat((acc.protein + (Number(item.protein) || 0)).toFixed(1)),
+      carbs: parseFloat((acc.carbs + (Number(item.carbs) || 0)).toFixed(1)),
+      fat: parseFloat((acc.fat + (Number(item.fat) || 0)).toFixed(1)),
+      fiber: parseFloat((acc.fiber + (Number(item.fiber) || 0)).toFixed(1)),
+      sugar: parseFloat((acc.sugar + (Number(item.sugar) || 0)).toFixed(1))
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0 }
+  );
 }

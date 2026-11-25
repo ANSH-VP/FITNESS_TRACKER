@@ -8,11 +8,8 @@ import {
   RotateCcw,
   PlusCircle,
   MapPin,
-  Clock,
-  Zap,
   Trash2,
   AlertTriangle,
-  CheckCircle,
   Navigation,
   Compass
 } from 'lucide-react';
@@ -78,14 +75,12 @@ export default function RunningTracker() {
   const polylineRef = useRef(null);
   const markerRef = useRef(null);
 
-  // Load user runs on mount
   useEffect(() => {
     if (user?.id) {
       setRunsHistory(getRuns(user.id));
     }
   }, [user]);
 
-  // Clean up timer and GPS on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -99,12 +94,10 @@ export default function RunningTracker() {
     };
   }, []);
 
-  // Initialize or re-render map container
   useEffect(() => {
     if (!mapRef.current) return;
 
     if (!mapInstanceRef.current) {
-      // Default initial view (San Francisco or current location)
       const defaultCenter = routeCoordinates.length > 0
         ? routeCoordinates[routeCoordinates.length - 1]
         : [37.7749, -122.4194];
@@ -118,7 +111,6 @@ export default function RunningTracker() {
         maxZoom: 19
       }).addTo(map);
 
-      // Create polyline layer
       const polyline = L.polyline([], {
         color: '#10b981',
         weight: 5,
@@ -130,14 +122,12 @@ export default function RunningTracker() {
       polylineRef.current = polyline;
       mapInstanceRef.current = map;
 
-      // Invalidate size to ensure proper rendering inside flex containers
       setTimeout(() => {
         map.invalidateSize();
       }, 300);
     }
   }, []);
 
-  // Update map polyline and marker whenever route changes
   useEffect(() => {
     if (!mapInstanceRef.current) return;
 
@@ -146,41 +136,36 @@ export default function RunningTracker() {
     if (routeCoordinates.length > 0) {
       const currentPos = routeCoordinates[routeCoordinates.length - 1];
 
-      // Update or create marker
       if (!markerRef.current) {
         markerRef.current = L.marker(currentPos, { icon: userPinIcon }).addTo(map);
       } else {
         markerRef.current.setLatLng(currentPos);
       }
 
-      // Update polyline
       if (polylineRef.current) {
         polylineRef.current.setLatLngs(routeCoordinates);
       }
 
-      // Pan to user location smoothly
       map.panTo(currentPos, { animate: true });
     }
   }, [routeCoordinates]);
 
-  // Timer tick effect
   useEffect(() => {
     if (trackingState === 'tracking') {
       timerRef.current = setInterval(() => {
         setElapsedSeconds((prev) => prev + 1);
       }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
     }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [trackingState]);
 
-  // START RUN
   const handleStartRun = () => {
     if (!('geolocation' in navigator)) {
-      setGpsError('Geolocation is not supported by your browser. Please record your run manually below.');
+      setGpsError('Geolocation is not supported by your browser. Please record your run manually.');
       showToast('Geolocation is not supported on this browser.', 'warning');
       return;
     }
@@ -198,18 +183,11 @@ export default function RunningTracker() {
       markerRef.current = null;
     }
 
-    const options = {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 1000
-    };
-
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude, accuracy } = position.coords;
         setGpsAccuracy(Math.round(accuracy));
 
-        // Skip excessive jitter (> 80m accuracy)
         if (accuracy > 80 && lastCoordRef.current) return;
 
         const newPos = [latitude, longitude];
@@ -222,7 +200,6 @@ export default function RunningTracker() {
             longitude
           );
 
-          // Threshold: user moved at least 3 meters (0.003 km)
           if (stepDist >= 0.003) {
             setDistanceKm((prev) => parseFloat((prev + stepDist).toFixed(3)));
             setRouteCoordinates((prev) => [...prev, newPos]);
@@ -239,7 +216,7 @@ export default function RunningTracker() {
       (error) => {
         let errorMsg = 'GPS acquisition error.';
         if (error.code === error.PERMISSION_DENIED) {
-          errorMsg = 'Location permission was denied. You can record your run using the Manual Entry button.';
+          errorMsg = 'Location permission was denied. You can record your run using Manual Entry.';
         } else if (error.code === error.POSITION_UNAVAILABLE) {
           errorMsg = 'GPS signal unavailable. Ensure location is enabled on your device.';
         } else if (error.code === error.TIMEOUT) {
@@ -248,25 +225,26 @@ export default function RunningTracker() {
         setGpsError(errorMsg);
         showToast(errorMsg, 'warning');
       },
-      options
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 1000
+      }
     );
 
     showToast('GPS Run started! Move to record your route.', 'info');
   };
 
-  // PAUSE RUN
   const handlePauseRun = () => {
     setTrackingState('paused');
     showToast('Run paused.', 'info');
   };
 
-  // RESUME RUN
   const handleResumeRun = () => {
     setTrackingState('tracking');
     showToast('Run resumed.', 'info');
   };
 
-  // END RUN
   const handleEndRun = () => {
     if (watchIdRef.current !== null && 'geolocation' in navigator) {
       navigator.geolocation.clearWatch(watchIdRef.current);
@@ -276,7 +254,6 @@ export default function RunningTracker() {
     setRunTitle(`Outdoor Run - ${formatFriendlyDate(getLocalDateString(new Date()))}`);
   };
 
-  // DISCARD CURRENT RUN
   const handleDiscardRun = () => {
     if (watchIdRef.current !== null && 'geolocation' in navigator) {
       navigator.geolocation.clearWatch(watchIdRef.current);
@@ -291,13 +268,12 @@ export default function RunningTracker() {
     showToast('Run session discarded.', 'info');
   };
 
-  // SAVE RUN TO LOCAL STORAGE
   const handleSaveRun = () => {
     const userWeight = user?.weight || 70;
     const finalCalories = estimateRunningCalories(userWeight, distanceKm, elapsedSeconds);
     const finalPace = calculatePace(elapsedSeconds, distanceKm);
 
-    const saved = saveRun(user.id, {
+    saveRun(user.id, {
       title: runTitle || 'Outdoor GPS Run',
       distance: distanceKm,
       duration: elapsedSeconds,
@@ -315,11 +291,11 @@ export default function RunningTracker() {
     setElapsedSeconds(0);
     setDistanceKm(0);
     setRouteCoordinates([]);
+    setRunNotes('');
     lastCoordRef.current = null;
     showToast(`Run of ${distanceKm} km saved to your fitness profile!`, 'success');
   };
 
-  // MANUAL RUN ENTRY
   const handleManualSubmit = (e) => {
     e.preventDefault();
     const dist = parseFloat(manualForm.distance);
@@ -366,7 +342,6 @@ export default function RunningTracker() {
     showToast(`Manual run of ${dist} km logged successfully!`, 'success');
   };
 
-  // DELETE RUN
   const handleDeleteRun = (runId) => {
     if (window.confirm('Are you sure you want to delete this running record?')) {
       deleteRun(user.id, runId);
@@ -375,30 +350,33 @@ export default function RunningTracker() {
     }
   };
 
-  // Calculated live metrics
   const currentPace = calculatePace(elapsedSeconds, distanceKm);
   const currentCalories = estimateRunningCalories(user?.weight || 70, distanceKm, elapsedSeconds);
 
   return (
-    <div className="running-tracker-page">
-      {/* HUD Header */}
-      <div className="running-hud-card">
-        <div className="hud-top-bar">
+    <div className="clean-page">
+      {/* Live Run HUD */}
+      <section className="run-hero-hud">
+        <div className="run-secondary-bar">
           <div className="hud-status-indicator">
             <span className={`status-dot dot-${trackingState}`}></span>
             <span className="status-label">
               {trackingState === 'idle' && 'READY TO RUN'}
-              {trackingState === 'tracking' && 'GPS TRACKING ACTIVE'}
-              {trackingState === 'paused' && 'RUN PAUSED'}
+              {trackingState === 'tracking' && 'LIVE GPS TRACKING'}
+              {trackingState === 'paused' && 'PAUSED'}
               {trackingState === 'summary' && 'RUN COMPLETED'}
             </span>
           </div>
 
           <div className="hud-meta-tags">
+            <span className="hud-gps-pill">
+              <Flame size={13} className="text-amber-400" />
+              <span>{currentCalories} kcal</span>
+            </span>
             {gpsAccuracy !== null && (
               <span className="hud-gps-pill">
-                <Compass size={14} className="text-emerald-400" />
-                <span>Accuracy: ±{gpsAccuracy}m</span>
+                <Compass size={13} className="text-emerald-400" />
+                <span>GPS ±{gpsAccuracy}m</span>
               </span>
             )}
             {trackingState === 'idle' && (
@@ -407,46 +385,37 @@ export default function RunningTracker() {
                 className="btn btn-secondary btn-sm"
               >
                 <PlusCircle size={15} />
-                <span>Manual Entry</span>
+                <span>Log Manual Run</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* Big Live Metrics Display */}
-        <div className="hud-metrics-grid">
-          <div className="hud-metric-box">
-            <span className="hud-metric-label">DISTANCE</span>
-            <div className="hud-metric-value-wrap">
-              <span className="hud-metric-num">{distanceKm.toFixed(2)}</span>
-              <span className="hud-metric-unit">km</span>
+        {/* Prominent Primary Metrics: Distance, Duration, Pace */}
+        <div className="run-primary-metrics">
+          <div className="run-primary-stat">
+            <span className="run-primary-label">Distance</span>
+            <div>
+              <span className="run-primary-num text-emerald-400">{distanceKm.toFixed(2)}</span>
+              <span className="run-primary-unit">km</span>
             </div>
           </div>
 
-          <div className="hud-metric-box">
-            <span className="hud-metric-label">DURATION</span>
-            <div className="hud-metric-value-wrap">
-              <span className="hud-metric-num">{formatDuration(elapsedSeconds)}</span>
+          <div className="run-primary-stat">
+            <span className="run-primary-label">Duration</span>
+            <div>
+              <span className="run-primary-num">{formatDuration(elapsedSeconds)}</span>
             </div>
           </div>
 
-          <div className="hud-metric-box">
-            <span className="hud-metric-label">CURRENT PACE</span>
-            <div className="hud-metric-value-wrap">
-              <span className="hud-metric-num text-cyan-400">{currentPace}</span>
-            </div>
-          </div>
-
-          <div className="hud-metric-box">
-            <span className="hud-metric-label">CALORIES</span>
-            <div className="hud-metric-value-wrap">
-              <span className="hud-metric-num text-amber-400">{currentCalories}</span>
-              <span className="hud-metric-unit">kcal</span>
+          <div className="run-primary-stat">
+            <span className="run-primary-label">Avg Pace</span>
+            <div>
+              <span className="run-primary-num text-cyan-400">{currentPace}</span>
             </div>
           </div>
         </div>
 
-        {/* GPS Error Alert */}
         {gpsError && (
           <div className="gps-error-banner">
             <AlertTriangle size={18} />
@@ -456,55 +425,55 @@ export default function RunningTracker() {
           </div>
         )}
 
-        {/* Controls Bar */}
-        <div className="hud-controls-row">
+        {/* Controls */}
+        <div className="run-controls-bar">
           {trackingState === 'idle' && (
-            <button onClick={handleStartRun} className="btn btn-primary btn-lg btn-hud-start">
-              <Play size={20} fill="currentColor" />
-              <span>Start GPS Run</span>
+            <button onClick={handleStartRun} className="btn btn-primary btn-lg run-control-btn">
+              <Play size={19} fill="currentColor" />
+              <span>Start Run</span>
             </button>
           )}
 
           {trackingState === 'tracking' && (
             <>
-              <button onClick={handlePauseRun} className="btn btn-warning btn-lg">
-                <Pause size={20} />
+              <button onClick={handlePauseRun} className="btn btn-warning btn-lg run-control-btn">
+                <Pause size={19} />
                 <span>Pause</span>
               </button>
-              <button onClick={handleEndRun} className="btn btn-danger btn-lg">
-                <Square size={20} />
-                <span>End Run</span>
+              <button onClick={handleEndRun} className="btn btn-danger btn-lg run-control-btn">
+                <Square size={18} fill="currentColor" />
+                <span>Stop</span>
               </button>
             </>
           )}
 
           {trackingState === 'paused' && (
             <>
-              <button onClick={handleResumeRun} className="btn btn-primary btn-lg">
-                <Play size={20} fill="currentColor" />
+              <button onClick={handleResumeRun} className="btn btn-primary btn-lg run-control-btn">
+                <Play size={19} fill="currentColor" />
                 <span>Resume</span>
               </button>
-              <button onClick={handleEndRun} className="btn btn-danger btn-lg">
-                <Square size={20} />
-                <span>Finish & Save</span>
+              <button onClick={handleEndRun} className="btn btn-danger btn-lg run-control-btn">
+                <Square size={18} fill="currentColor" />
+                <span>Stop</span>
               </button>
             </>
           )}
 
           {trackingState === 'summary' && (
-            <div className="summary-actions-wrap">
+            <div className="summary-actions-wrap" style={{ width: '100%' }}>
               <div className="summary-input-group">
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="Run Title (e.g. Campus Morning Loop)"
+                  placeholder="Run Title (e.g. Morning Park Loop)"
                   value={runTitle}
                   onChange={(e) => setRunTitle(e.target.value)}
                 />
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="Notes (optional): feeling, weather, pace target..."
+                  placeholder="Notes (optional): terrain, effort, weather..."
                   value={runNotes}
                   onChange={(e) => setRunNotes(e.target.value)}
                 />
@@ -512,7 +481,7 @@ export default function RunningTracker() {
               <div className="summary-btn-group">
                 <button onClick={handleSaveRun} className="btn btn-primary btn-lg">
                   <Save size={18} />
-                  <span>Save Run Record</span>
+                  <span>Save Session</span>
                 </button>
                 <button onClick={handleDiscardRun} className="btn btn-secondary btn-lg">
                   <RotateCcw size={18} />
@@ -522,33 +491,39 @@ export default function RunningTracker() {
             </div>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Leaflet Route Map */}
-      <div className="map-section-wrapper">
+      {/* GPS Route Map */}
+      <section className="run-map-card">
         <div className="map-header-bar">
           <span className="map-title flex items-center gap-2">
             <Navigation size={16} className="text-emerald-400" />
-            <span>Interactive OpenStreetMap Route View</span>
+            <span>Live GPS Route</span>
           </span>
-          <span className="map-note">Powered by Leaflet & OpenStreetMap</span>
+          <span className="map-note">
+            {routeCoordinates.length > 0
+              ? `${routeCoordinates.length} GPS points recorded`
+              : 'OpenStreetMap'}
+          </span>
         </div>
         <div id="leaflet-run-map" ref={mapRef} className="leaflet-map-container" />
-      </div>
+      </section>
 
-      {/* Run History List */}
-      <div className="run-history-section">
-        <div className="section-header">
-          <h3 className="section-title">Saved Running Activities ({runsHistory.length})</h3>
-          <p className="section-subtitle">Your personal outdoor GPS runs and recorded sessions</p>
+      {/* Running History */}
+      <section className="clean-section">
+        <div className="clean-section-head">
+          <div>
+            <h3 className="clean-section-title">Running History ({runsHistory.length})</h3>
+            <p className="clean-page-subtitle">Completed sessions with distance, pace, duration, and route.</p>
+          </div>
         </div>
 
         {runsHistory.length === 0 ? (
           <EmptyState
             icon={Flame}
             title="No running activities recorded yet"
-            description="Hit the 'Start GPS Run' button above or log your mileage manually to start building your running history."
-            actionLabel="Start GPS Run"
+            description="Press Start Run above or log a manual run to build your running history."
+            actionLabel="Start Run"
             onAction={handleStartRun}
           />
         ) : (
@@ -558,10 +533,12 @@ export default function RunningTracker() {
                 <div className="run-card-header">
                   <div>
                     <h4 className="run-card-title">{run.title || 'Outdoor Run'}</h4>
-                    <span className="run-card-date">{formatFriendlyDate(run.date)} • {run.time || ''}</span>
+                    <span className="run-card-date">
+                      {formatFriendlyDate(run.date)}{run.time ? ` • ${run.time}` : ''}
+                    </span>
                   </div>
                   <span className={`run-badge ${run.type === 'Manual Entry' ? 'badge-manual' : 'badge-gps'}`}>
-                    {run.type || 'GPS Run'}
+                    {run.type || 'GPS Route'}
                   </span>
                 </div>
 
@@ -571,12 +548,12 @@ export default function RunningTracker() {
                     <span className="run-stat-label">Distance</span>
                   </div>
                   <div className="run-stat-item">
-                    <span className="run-stat-num">{formatDuration(run.duration)}</span>
-                    <span className="run-stat-label">Time</span>
-                  </div>
-                  <div className="run-stat-item">
                     <span className="run-stat-num">{run.pace || '--:--'}</span>
                     <span className="run-stat-label">Avg Pace</span>
+                  </div>
+                  <div className="run-stat-item">
+                    <span className="run-stat-num">{formatDuration(run.duration)}</span>
+                    <span className="run-stat-label">Duration</span>
                   </div>
                   <div className="run-stat-item">
                     <span className="run-stat-num text-amber-400">{run.calories}</span>
@@ -584,13 +561,12 @@ export default function RunningTracker() {
                   </div>
                 </div>
 
-                {run.notes && (
-                  <p className="run-card-notes">"{run.notes}"</p>
-                )}
+                {run.notes && <p className="run-card-notes">&ldquo;{run.notes}&rdquo;</p>}
 
                 <div className="run-card-footer">
-                  <span className="text-xs text-slate-400">
-                    {run.route?.length > 0 ? `${run.route.length} GPS checkpoints` : 'Logged manual entry'}
+                  <span className="text-xs text-slate-400 flex items-center gap-1">
+                    <MapPin size={12} className="text-emerald-400" />
+                    {run.route?.length > 0 ? `${run.route.length} GPS route points` : 'Manual entry'}
                   </span>
                   <button
                     onClick={() => handleDeleteRun(run.id)}
@@ -604,7 +580,7 @@ export default function RunningTracker() {
             ))}
           </div>
         )}
-      </div>
+      </section>
 
       {/* Manual Run Entry Modal */}
       <Modal
@@ -681,7 +657,7 @@ export default function RunningTracker() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Notes & Perceived Effort (Optional)</label>
+            <label className="form-label">Notes &amp; Perceived Effort (Optional)</label>
             <textarea
               className="form-input form-textarea"
               rows="2"

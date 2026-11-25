@@ -1,18 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  TrendingUp,
   Weight,
-  Ruler,
   Target,
   Plus,
   Trash2,
   CheckCircle2,
-  Flame,
-  Dumbbell,
   Award,
   Sparkles,
-  Calendar,
-  Activity
+  ArrowUpRight,
+  ArrowDownRight,
+  Minus
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -23,10 +20,7 @@ import {
   Tooltip,
   CartesianGrid,
   BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell
+  Bar
 } from 'recharts';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
@@ -34,23 +28,60 @@ import { useToast } from '../context/ToastContext';
 import {
   getWeights,
   saveWeight,
-  deleteWeight,
   getRuns,
   getWorkouts,
   getGoals,
   saveGoal,
-  updateGoal,
   deleteGoal
 } from '../services/storageService';
 import {
   calculateBMI,
-  getLocalDateString,
-  formatFriendlyDate
+  getLocalDateString
 } from '../utils/calculations';
 import Modal from '../components/common/Modal';
-import StatCard from '../components/common/StatCard';
 
-const PIE_COLORS = ['#10b981', '#06b6d4', '#f59e0b', '#8b5cf6', '#ec4899', '#3b82f6'];
+function formatShortDay(dateObj) {
+  return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function getDateDaysAgo(daysAgo) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - daysAgo);
+  return d;
+}
+
+function TrendBadge({ delta, unit, lowerIsBetter = false, emptyText = 'No prior data' }) {
+  if (delta === null || delta === undefined || Number.isNaN(delta)) {
+    return (
+      <span className="trend-pill neutral">
+        <Minus size={13} />
+        <span>{emptyText}</span>
+      </span>
+    );
+  }
+
+  if (Math.abs(delta) < 0.05) {
+    return (
+      <span className="trend-pill neutral">
+        <Minus size={13} />
+        <span>No change</span>
+      </span>
+    );
+  }
+
+  const isUp = delta > 0;
+  const isGood = lowerIsBetter ? !isUp : isUp;
+  const sign = isUp ? '+' : '';
+  const formatted = Number.isInteger(delta) ? delta : delta.toFixed(1);
+
+  return (
+    <span className={`trend-pill ${isGood ? 'positive' : 'negative'}`}>
+      {isUp ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+      <span>{`${sign}${formatted} ${unit} vs prev`}</span>
+    </span>
+  );
+}
 
 export default function Progress() {
   const { user } = useAuth();
@@ -60,6 +91,7 @@ export default function Progress() {
   const [runs, setRuns] = useState([]);
   const [workouts, setWorkouts] = useState([]);
   const [goals, setGoals] = useState([]);
+  const [timeframe, setTimeframe] = useState('weekly'); // 'weekly' | 'monthly'
 
   // Weight Log Modal
   const [weightModalOpen, setWeightModalOpen] = useState(false);
@@ -88,6 +120,135 @@ export default function Progress() {
     loadData();
   }, [user]);
 
+  const periodDays = timeframe === 'weekly' ? 7 : 30;
+
+  // 1. Weight Chart & Period Comparison
+  const weightMetrics = useMemo(() => {
+    const startCurrent = getLocalDateString(getDateDaysAgo(periodDays - 1));
+    const startPrev = getLocalDateString(getDateDaysAgo(periodDays * 2 - 1));
+
+    const currentEntries = weights.filter((w) => w.date >= startCurrent);
+    const prevEntries = weights.filter((w) => w.date >= startPrev && w.date < startCurrent);
+
+    const chartData = (currentEntries.length > 0 ? currentEntries : weights.slice(-periodDays)).map((w) => ({
+      label: formatShortDay(new Date(`${w.date}T00:00:00`)),
+      weight: Number(w.weight)
+    }));
+
+    const latest = weights.length > 0 ? Number(weights[weights.length - 1].weight) : (user?.weight || null);
+    let delta = null;
+    if (currentEntries.length > 0 && prevEntries.length > 0) {
+      const avgCurr = currentEntries.reduce((s, w) => s + Number(w.weight), 0) / currentEntries.length;
+      const avgPrev = prevEntries.reduce((s, w) => s + Number(w.weight), 0) / prevEntries.length;
+      delta = avgCurr - avgPrev;
+    } else if (weights.length >= 2) {
+      delta = Number(weights[weights.length - 1].weight) - Number(weights[weights.length - 2].weight);
+    }
+
+    return { chartData, latest, delta };
+  }, [weights, periodDays, user]);
+
+  // 2. Running Distance Chart & Period Comparison
+  const runningMetrics = useMemo(() => {
+    const buckets = [];
+    if (timeframe === 'weekly') {
+      for (let i = 6; i >= 0; i--) {
+        const d = getDateDaysAgo(i);
+        const key = getLocalDateString(d);
+        const dayKm = runs
+          .filter((r) => r.date === key)
+          .reduce((sum, r) => sum + (Number(r.distance) || 0), 0);
+        buckets.push({
+          label: d.toLocaleDateString('en-US', { weekday: 'short' }),
+          distance: parseFloat(dayKm.toFixed(2))
+        });
+      }
+    } else {
+      // 4 weekly buckets covering the last 28 days
+      for (let w = 3; w >= 0; w--) {
+        const start = getLocalDateString(getDateDaysAgo(w * 7 + 6));
+        const end = getLocalDateString(getDateDaysAgo(w * 7));
+        const weekKm = runs
+          .filter((r) => r.date >= start && r.date <= end)
+          .reduce((sum, r) => sum + (Number(r.distance) || 0), 0);
+        buckets.push({
+          label: formatShortDay(getDateDaysAgo(w * 7 + 6)),
+          distance: parseFloat(weekKm.toFixed(2))
+        });
+      }
+    }
+
+    const currStart = getLocalDateString(getDateDaysAgo(periodDays - 1));
+    const prevStart = getLocalDateString(getDateDaysAgo(periodDays * 2 - 1));
+
+    const currentTotal = runs
+      .filter((r) => r.date >= currStart)
+      .reduce((sum, r) => sum + (Number(r.distance) || 0), 0);
+    const prevTotal = runs
+      .filter((r) => r.date >= prevStart && r.date < currStart)
+      .reduce((sum, r) => sum + (Number(r.distance) || 0), 0);
+
+    const latestRunKm = runs.length > 0 ? Number(runs[0].distance) || 0 : 0;
+    const delta = prevTotal > 0 || currentTotal > 0 ? currentTotal - prevTotal : null;
+
+    return {
+      chartData: buckets,
+      currentTotal: parseFloat(currentTotal.toFixed(1)),
+      latestRunKm: parseFloat(latestRunKm.toFixed(1)),
+      delta
+    };
+  }, [runs, timeframe, periodDays]);
+
+  // 3. Workout Activity Chart & Period Comparison
+  const workoutMetrics = useMemo(() => {
+    const buckets = [];
+    if (timeframe === 'weekly') {
+      for (let i = 6; i >= 0; i--) {
+        const d = getDateDaysAgo(i);
+        const key = getLocalDateString(d);
+        const dayMins = workouts
+          .filter((w) => w.date === key)
+          .reduce((sum, w) => sum + (Number(w.duration) || 0), 0);
+        buckets.push({
+          label: d.toLocaleDateString('en-US', { weekday: 'short' }),
+          minutes: Math.round(dayMins)
+        });
+      }
+    } else {
+      for (let w = 3; w >= 0; w--) {
+        const start = getLocalDateString(getDateDaysAgo(w * 7 + 6));
+        const end = getLocalDateString(getDateDaysAgo(w * 7));
+        const weekMins = workouts
+          .filter((wk) => wk.date >= start && wk.date <= end)
+          .reduce((sum, wk) => sum + (Number(wk.duration) || 0), 0);
+        buckets.push({
+          label: formatShortDay(getDateDaysAgo(w * 7 + 6)),
+          minutes: Math.round(weekMins)
+        });
+      }
+    }
+
+    const currStart = getLocalDateString(getDateDaysAgo(periodDays - 1));
+    const prevStart = getLocalDateString(getDateDaysAgo(periodDays * 2 - 1));
+
+    const currentSessions = workouts.filter((w) => w.date >= currStart);
+    const prevSessions = workouts.filter((w) => w.date >= prevStart && w.date < currStart);
+
+    const currentMins = currentSessions.reduce((sum, w) => sum + (Number(w.duration) || 0), 0);
+    const prevMins = prevSessions.reduce((sum, w) => sum + (Number(w.duration) || 0), 0);
+
+    const latestDuration = workouts.length > 0 ? Number(workouts[0].duration) || 0 : 0;
+    const delta = prevMins > 0 || currentMins > 0 ? currentMins - prevMins : null;
+
+    return {
+      chartData: buckets,
+      currentCount: currentSessions.length,
+      currentMins,
+      latestDuration,
+      delta
+    };
+  }, [workouts, timeframe, periodDays]);
+
   // Recalculate dynamic goal progress based on real records
   const processedGoals = goals.map((goal) => {
     let current = Number(goal.currentValue) || 0;
@@ -98,15 +259,14 @@ export default function Progress() {
     } else if (goal.category === 'Workout') {
       current = workouts.length;
     } else if (goal.category === 'Weight') {
-      const latestWeight = weights.length > 0 ? weights[weights.length - 1].weight : (user?.weight || 70);
-      current = latestWeight;
+      const latestW = weights.length > 0 ? weights[weights.length - 1].weight : (user?.weight || 70);
+      current = latestW;
     }
 
     const target = Number(goal.targetValue) || 1;
     let percent = 0;
 
     if (goal.category === 'Weight') {
-      // For weight loss: closer to target is better
       const initial = user?.weight || 75;
       if (initial > target) {
         percent = Math.min(100, Math.max(0, Math.round(((initial - current) / (initial - target)) * 100)));
@@ -117,14 +277,9 @@ export default function Progress() {
       percent = Math.min(100, Math.round((current / target) * 100));
     }
 
-    return {
-      ...goal,
-      calculatedCurrent: current,
-      percent
-    };
+    return { ...goal, calculatedCurrent: current, percent };
   });
 
-  // Handle Weight Log Submit
   const handleSaveWeight = (e) => {
     e.preventDefault();
     const wt = parseFloat(newWeight);
@@ -133,17 +288,12 @@ export default function Progress() {
       return;
     }
 
-    saveWeight(user.id, {
-      date: weightDate,
-      weight: wt
-    });
-
+    saveWeight(user.id, { date: weightDate, weight: wt });
     loadData();
     setWeightModalOpen(false);
     showToast(`Logged body weight: ${wt} kg on ${weightDate}`, 'success');
   };
 
-  // Handle Goal Submit
   const handleSaveGoal = (e) => {
     e.preventDefault();
     if (!goalForm.title.trim() || !goalForm.targetValue) {
@@ -169,13 +319,8 @@ export default function Progress() {
       deadline: ''
     });
 
-    confetti({
-      particleCount: 50,
-      spread: 60,
-      origin: { y: 0.7 }
-    });
-
-    showToast('New fitness goal established! You got this.', 'success');
+    confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
+    showToast('New fitness goal established!', 'success');
   };
 
   const handleDeleteGoal = (id) => {
@@ -186,193 +331,193 @@ export default function Progress() {
     }
   };
 
-  // BMI Metrics
   const latestWeight = weights.length > 0 ? weights[weights.length - 1].weight : (user?.weight || 70);
   const bmiInfo = calculateBMI(latestWeight, user?.height || 170);
 
-  // Chart data: Weight History
-  const weightChartData = weights.map((w) => ({
-    date: formatFriendlyDate(w.date),
-    weight: w.weight
-  }));
-
-  // Chart data: Running Distance by date
-  const runChartData = runs.slice(0, 10).reverse().map((r) => ({
-    date: formatFriendlyDate(r.date),
-    distance: r.distance,
-    pace: r.pace
-  }));
-
-  // Chart data: Workout Categories breakdown
-  const workoutCategoriesMap = {};
-  workouts.forEach((w) => {
-    workoutCategoriesMap[w.category] = (workoutCategoriesMap[w.category] || 0) + 1;
-  });
-  const workoutPieData = Object.keys(workoutCategoriesMap).map((cat) => ({
-    name: cat,
-    value: workoutCategoriesMap[cat]
-  }));
-
   return (
-    <div className="progress-page">
-      {/* Top Banner */}
-      <div className="progress-header-card">
-        <div className="progress-title-group">
-          <div className="progress-tag">
-            <TrendingUp size={16} className="text-emerald-400" />
-            <span>METRIC PROGRESSION & GOALS</span>
-          </div>
-          <h2 className="progress-page-title">Fitness Progress HUD</h2>
-          <p className="progress-page-desc">
-            Monitor weight transformation, running pace progression, exercise distribution, and personal milestones.
+    <div className="clean-page">
+      {/* Header & Weekly / Monthly Filter */}
+      <div className="clean-header-bar">
+        <div>
+          <h2 className="clean-page-title">Progress &amp; Trends</h2>
+          <p className="clean-page-subtitle">
+            Clear breakdown of your weight, running distance, and workout activity.
           </p>
         </div>
 
-        <div className="progress-header-btns">
-          <button
-            onClick={() => setWeightModalOpen(true)}
-            className="btn btn-secondary"
-          >
-            <Weight size={16} />
-            <span>Log Weight</span>
-          </button>
-          <button
-            onClick={() => setGoalModalOpen(true)}
-            className="btn btn-primary"
-          >
-            <Target size={16} />
-            <span>Set New Goal</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Overview Metric Cards Row */}
-      <div className="progress-stats-grid">
-        <StatCard
-          title="Current Body Weight"
-          value={latestWeight}
-          unit="kg"
-          icon={Weight}
-          accent="cyan"
-          subtitle={`Height: ${user?.height || 170} cm`}
-        />
-        <StatCard
-          title="Body Mass Index (BMI)"
-          value={bmiInfo.bmi}
-          unit=""
-          icon={Activity}
-          accent="emerald"
-          subtitle={bmiInfo.category}
-        />
-        <StatCard
-          title="Total Running Distance"
-          value={runs.reduce((acc, r) => acc + (Number(r.distance) || 0), 0).toFixed(1)}
-          unit="km"
-          icon={Flame}
-          accent="amber"
-          subtitle={`${runs.length} recorded runs`}
-        />
-        <StatCard
-          title="Total Gym Sessions"
-          value={workouts.length}
-          unit="sessions"
-          icon={Dumbbell}
-          accent="purple"
-          subtitle="Logged strength & cardio"
-        />
-      </div>
-
-      {/* BMI Guidance Box */}
-      <div className="bmi-advisory-card">
-        <div className="bmi-advisory-left">
-          <span className="bmi-badge" style={{ backgroundColor: `${bmiInfo.color}20`, color: bmiInfo.color }}>
-            {bmiInfo.category} (BMI {bmiInfo.bmi})
-          </span>
-          <p className="bmi-advice-text">{bmiInfo.advice}</p>
-        </div>
-        <div className="bmi-scale-bar">
-          <div className="bmi-scale-segment seg-under">Underweight &lt;18.5</div>
-          <div className="bmi-scale-segment seg-normal">Normal 18.5-24.9</div>
-          <div className="bmi-scale-segment seg-over">Overweight 25-29.9</div>
-          <div className="bmi-scale-segment seg-obese">Obese 30+</div>
-        </div>
-      </div>
-
-      {/* Weight History & Running Progress Charts */}
-      <div className="progress-charts-grid">
-        {/* Weight Evolution Chart */}
-        <div className="progress-chart-card">
-          <div className="dash-card-header">
-            <div>
-              <h3 className="dash-card-title">Body Weight Evolution</h3>
-              <p className="dash-card-subtitle">Tracking change over time</p>
-            </div>
+        <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+          <div className="segmented-toggle" role="group" aria-label="Timeframe filter">
             <button
-              onClick={() => setWeightModalOpen(true)}
-              className="dash-link"
+              type="button"
+              className={`segmented-btn ${timeframe === 'weekly' ? 'active' : ''}`}
+              onClick={() => setTimeframe('weekly')}
             >
-              + Add Entry
+              Weekly
+            </button>
+            <button
+              type="button"
+              className={`segmented-btn ${timeframe === 'monthly' ? 'active' : ''}`}
+              onClick={() => setTimeframe('monthly')}
+            >
+              Monthly
             </button>
           </div>
 
-          <div className="chart-render-area">
-            {weightChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={weightChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-                  <XAxis dataKey="date" stroke="#94a3b8" fontSize={12} tickLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} domain={['dataMin - 1', 'dataMax + 1']} unit="kg" />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', color: '#f8fafc' }}
-                    formatter={(val) => [`${val} kg`, 'Weight']}
-                  />
-                  <Line type="monotone" dataKey="weight" stroke="#06b6d4" strokeWidth={3} dot={{ fill: '#06b6d4', r: 4 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="chart-empty-msg">No weight data logged yet. Click '+ Add Entry' to record your weight.</div>
-            )}
-          </div>
-        </div>
-
-        {/* Running Progression Chart */}
-        <div className="progress-chart-card">
-          <div className="dash-card-header">
-            <div>
-              <h3 className="dash-card-title">Running Distance History</h3>
-              <p className="dash-card-subtitle">Kilometers per running session</p>
-            </div>
-          </div>
-
-          <div className="chart-render-area">
-            {runChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={runChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-                  <XAxis dataKey="date" stroke="#94a3b8" fontSize={12} tickLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} unit=" km" />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', color: '#f8fafc' }}
-                    formatter={(val) => [`${val} km`, 'Distance']}
-                  />
-                  <Bar dataKey="distance" fill="#10b981" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="chart-empty-msg">No running records yet. Start tracking your runs on the GPS map!</div>
-            )}
-          </div>
+          <button onClick={() => setWeightModalOpen(true)} className="btn btn-secondary btn-sm">
+            <Weight size={15} />
+            <span>Log Weight</span>
+          </button>
+          <button onClick={() => setGoalModalOpen(true)} className="btn btn-primary btn-sm">
+            <Target size={15} />
+            <span>New Goal</span>
+          </button>
         </div>
       </div>
 
-      {/* Goal Milestones Section */}
-      <div className="goals-section">
-        <div className="dash-card-header mb-4">
-          <div>
-            <h3 className="dash-card-title">Fitness Goals & Milestones ({processedGoals.length})</h3>
-            <p className="dash-card-subtitle">Real-time progress calculated from your personal saved records</p>
+      {/* Three Separate, Clearly Labelled Charts */}
+      <section className="progress-charts-stack">
+        {/* Chart 1: Body Weight */}
+        <div className="clean-card">
+          <div className="progress-chart-header">
+            <div>
+              <h3 className="dash-card-title">Body Weight (kg)</h3>
+              <div className="progress-latest-value">
+                {weightMetrics.latest !== null ? weightMetrics.latest : '--'}
+                <span className="progress-latest-unit">kg latest</span>
+              </div>
+            </div>
+            <TrendBadge
+              delta={weightMetrics.delta}
+              unit="kg"
+              lowerIsBetter={true}
+              emptyText="Log 2+ weights"
+            />
           </div>
-          <button onClick={() => setGoalModalOpen(true)} className="btn btn-primary btn-sm">
+
+          {weightMetrics.chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={210}>
+              <LineChart data={weightMetrics.chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="label" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis
+                  stroke="#64748b"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  tickCount={4}
+                  domain={['dataMin - 1', 'dataMax + 1']}
+                  unit=" kg"
+                />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', color: '#f8fafc' }}
+                  formatter={(val) => [`${val} kg`, 'Weight']}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="weight"
+                  stroke="#06b6d4"
+                  strokeWidth={2.5}
+                  dot={{ fill: '#06b6d4', r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="chart-empty-msg">No weight entries yet. Click &ldquo;Log Weight&rdquo; to start tracking.</div>
+          )}
+
+          <p className="chart-explanation">
+            Current BMI is <strong>{bmiInfo.bmi}</strong> ({bmiInfo.category}).{' '}
+            {weightMetrics.delta === null
+              ? 'Log weight regularly to track trends between periods.'
+              : weightMetrics.delta < 0
+                ? `Down ${Math.abs(weightMetrics.delta).toFixed(1)} kg compared with the previous period.`
+                : `Up ${weightMetrics.delta.toFixed(1)} kg compared with the previous period.`}
+          </p>
+        </div>
+
+        {/* Chart 2: Running Distance */}
+        <div className="clean-card">
+          <div className="progress-chart-header">
+            <div>
+              <h3 className="dash-card-title">Running Distance (km)</h3>
+              <div className="progress-latest-value">
+                {runningMetrics.latestRunKm}
+                <span className="progress-latest-unit">km latest run</span>
+              </div>
+            </div>
+            <TrendBadge delta={runningMetrics.delta} unit="km" />
+          </div>
+
+          {runs.length > 0 ? (
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart data={runningMetrics.chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="label" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} tickCount={4} unit=" km" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', color: '#f8fafc' }}
+                  formatter={(val) => [`${val} km`, 'Distance']}
+                />
+                <Bar dataKey="distance" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={36} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="chart-empty-msg">No runs recorded yet. Start a GPS run to see your distance chart.</div>
+          )}
+
+          <p className="chart-explanation">
+            Total of <strong>{runningMetrics.currentTotal} km</strong> logged in the selected{' '}
+            {timeframe === 'weekly' ? '7-day' : '30-day'} window.
+          </p>
+        </div>
+
+        {/* Chart 3: Workout Activity */}
+        <div className="clean-card">
+          <div className="progress-chart-header">
+            <div>
+              <h3 className="dash-card-title">Workout Activity (mins)</h3>
+              <div className="progress-latest-value">
+                {workoutMetrics.latestDuration}
+                <span className="progress-latest-unit">mins latest</span>
+              </div>
+            </div>
+            <TrendBadge delta={workoutMetrics.delta} unit="mins" />
+          </div>
+
+          {workouts.length > 0 ? (
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart data={workoutMetrics.chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="label" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} tickCount={4} unit="m" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', color: '#f8fafc' }}
+                  formatter={(val) => [`${val} mins`, 'Duration']}
+                />
+                <Bar dataKey="minutes" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={36} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="chart-empty-msg">No gym or strength workouts logged yet.</div>
+          )}
+
+          <p className="chart-explanation">
+            Completed <strong>{workoutMetrics.currentCount}</strong> session
+            {workoutMetrics.currentCount === 1 ? '' : 's'} ({workoutMetrics.currentMins} mins total) this{' '}
+            {timeframe === 'weekly' ? 'week' : 'month'}.
+          </p>
+        </div>
+      </section>
+
+      {/* Goal Milestones Section */}
+      <section className="clean-section">
+        <div className="clean-section-head">
+          <div>
+            <h3 className="clean-section-title">Fitness Goals ({processedGoals.length})</h3>
+            <p className="clean-page-subtitle">Calculated automatically from your logged activities.</p>
+          </div>
+          <button onClick={() => setGoalModalOpen(true)} className="btn btn-secondary btn-sm">
             <Plus size={15} />
             <span>Add Goal</span>
           </button>
@@ -415,15 +560,15 @@ export default function Progress() {
               {g.percent >= 100 ? (
                 <div className="goal-completed-banner">
                   <Award size={15} className="text-emerald-400" />
-                  <span>Goal Achieved! Outstanding work.</span>
+                  <span>Goal achieved!</span>
                 </div>
               ) : g.deadline ? (
-                <span className="goal-deadline-text">Target Deadline: {g.deadline}</span>
+                <span className="goal-deadline-text">Target Date: {g.deadline}</span>
               ) : null}
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
       {/* Weight Modal */}
       <Modal

@@ -47,7 +47,9 @@ export default function NutritionDiary() {
     calories: '',
     protein: '',
     carbs: '',
-    fat: ''
+    fat: '',
+    fiber: '',
+    sugar: ''
   });
 
   // Calorie Goal Edit Modal
@@ -80,6 +82,8 @@ export default function NutritionDiary() {
   const totalProtein = dateMeals.reduce((acc, m) => acc + (Number(m.protein) || 0), 0);
   const totalCarbs = dateMeals.reduce((acc, m) => acc + (Number(m.carbs) || 0), 0);
   const totalFat = dateMeals.reduce((acc, m) => acc + (Number(m.fat) || 0), 0);
+  const totalFiber = dateMeals.reduce((acc, m) => acc + (Number(m.fiber) || 0), 0);
+  const totalSugar = dateMeals.reduce((acc, m) => acc + (Number(m.sugar) || 0), 0);
 
   const calorieTarget = user?.dailyCalorieTarget || 2200;
   const remainingCalories = calorieTarget - totalCalories;
@@ -96,7 +100,9 @@ export default function NutritionDiary() {
       calories: '',
       protein: '',
       carbs: '',
-      fat: ''
+      fat: '',
+      fiber: '',
+      sugar: ''
     });
     setModalOpen(true);
   };
@@ -112,7 +118,9 @@ export default function NutritionDiary() {
       calories: meal.calories || '',
       protein: meal.protein || '',
       carbs: meal.carbs || '',
-      fat: meal.fat || ''
+      fat: meal.fat || '',
+      fiber: meal.fiber ?? '',
+      sugar: meal.sugar ?? ''
     });
     setModalOpen(true);
   };
@@ -134,6 +142,8 @@ export default function NutritionDiary() {
       protein: parseFloat(mealForm.protein) || 0,
       carbs: parseFloat(mealForm.carbs) || 0,
       fat: parseFloat(mealForm.fat) || 0,
+      fiber: parseFloat(mealForm.fiber) || 0,
+      sugar: parseFloat(mealForm.sugar) || 0,
       date: selectedDate
     };
 
@@ -318,6 +328,13 @@ export default function NutritionDiary() {
             </span>
           </div>
         </div>
+
+        {(totalFiber > 0 || totalSugar > 0) && (
+          <div className="ai-item-macros-row mt-3">
+            <span className="ai-macro-chip fiber">Daily Fibre: {totalFiber.toFixed(1)}g</span>
+            <span className="ai-macro-chip sugar">Daily Sugar: {totalSugar.toFixed(1)}g</span>
+          </div>
+        )}
       </div>
 
       {/* Meals Grouped by Category */}
@@ -367,6 +384,18 @@ export default function NutritionDiary() {
                           <span>C: {meal.carbs || 0}g</span>
                           <span>•</span>
                           <span>F: {meal.fat || 0}g</span>
+                          {Number(meal.fiber) > 0 && (
+                            <>
+                              <span>•</span>
+                              <span>Fibre: {meal.fiber}g</span>
+                            </>
+                          )}
+                          {Number(meal.sugar) > 0 && (
+                            <>
+                              <span>•</span>
+                              <span>Sugar: {meal.sugar}g</span>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -503,6 +532,33 @@ export default function NutritionDiary() {
                 placeholder="8"
                 value={mealForm.fat}
                 onChange={(e) => setMealForm({ ...mealForm, fat: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="form-row-two">
+            <div className="form-group">
+              <label className="form-label">Fibre (g)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                className="form-input"
+                placeholder="4"
+                value={mealForm.fiber}
+                onChange={(e) => setMealForm({ ...mealForm, fiber: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Sugar (g)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                className="form-input"
+                placeholder="6"
+                value={mealForm.sugar}
+                onChange={(e) => setMealForm({ ...mealForm, sugar: e.target.value })}
               />
             </div>
           </div>
