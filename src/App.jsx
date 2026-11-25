@@ -24,6 +24,8 @@ import NutritionDiary from './pages/NutritionDiary';
 import WorkoutTracker from './pages/WorkoutTracker';
 import Progress from './pages/Progress';
 import Profile from './pages/Profile';
+import ExerciseLibrary from './pages/ExerciseLibrary';
+import ActivityCalendar from './pages/ActivityCalendar';
 
 // Admin Module Pages
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -56,6 +58,8 @@ export default function App() {
               <Route path="/workouts" element={<WorkoutTracker />} />
               <Route path="/progress" element={<Progress />} />
               <Route path="/profile" element={<Profile />} />
+              <Route path="/exercises" element={<ExerciseLibrary />} />
+              <Route path="/calendar" element={<ActivityCalendar />} />
             </Route>
 
             {/* Authenticated Admin Module */}

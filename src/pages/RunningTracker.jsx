@@ -36,6 +36,22 @@ const userPinIcon = L.divIcon({
   iconAnchor: [12, 12]
 });
 
+// Custom start marker (green)
+const startIcon = L.divIcon({
+  className: '',
+  html: `<div style="width:16px;height:16px;border-radius:50%;background:#36C99A;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>`,
+  iconSize: [16, 16],
+  iconAnchor: [8, 8]
+});
+
+// Custom finish marker (orange)
+const finishIcon = L.divIcon({
+  className: '',
+  html: `<div style="width:16px;height:16px;border-radius:50%;background:#F3A64A;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>`,
+  iconSize: [16, 16],
+  iconAnchor: [8, 8]
+});
+
 export default function RunningTracker() {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -74,6 +90,8 @@ export default function RunningTracker() {
   const mapInstanceRef = useRef(null);
   const polylineRef = useRef(null);
   const markerRef = useRef(null);
+  const startMarkerRef = useRef(null);
+  const finishMarkerRef = useRef(null);
 
   useEffect(() => {
     if (user?.id) {
@@ -107,14 +125,15 @@ export default function RunningTracker() {
         attributionControl: false
       }).setView(defaultCenter, 15);
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors © CARTO'
       }).addTo(map);
 
       const polyline = L.polyline([], {
-        color: '#10b981',
+        color: '#B7F34A',
         weight: 5,
-        opacity: 0.9,
+        opacity: 0.95,
         lineJoin: 'round',
         lineCap: 'round'
       }).addTo(map);
@@ -136,10 +155,22 @@ export default function RunningTracker() {
     if (routeCoordinates.length > 0) {
       const currentPos = routeCoordinates[routeCoordinates.length - 1];
 
+      if (!startMarkerRef.current) {
+        startMarkerRef.current = L.marker(routeCoordinates[0], { icon: startIcon })
+          .bindTooltip('Start', { direction: 'top' })
+          .addTo(map);
+      }
+
       if (!markerRef.current) {
         markerRef.current = L.marker(currentPos, { icon: userPinIcon }).addTo(map);
       } else {
         markerRef.current.setLatLng(currentPos);
+      }
+
+      if (trackingState === 'summary' && routeCoordinates.length > 1 && !finishMarkerRef.current) {
+        finishMarkerRef.current = L.marker(currentPos, { icon: finishIcon })
+          .bindTooltip('Finish', { direction: 'top' })
+          .addTo(map);
       }
 
       if (polylineRef.current) {
@@ -148,7 +179,7 @@ export default function RunningTracker() {
 
       map.panTo(currentPos, { animate: true });
     }
-  }, [routeCoordinates]);
+  }, [routeCoordinates, trackingState]);
 
   useEffect(() => {
     if (trackingState === 'tracking') {
@@ -181,6 +212,14 @@ export default function RunningTracker() {
     if (markerRef.current && mapInstanceRef.current) {
       mapInstanceRef.current.removeLayer(markerRef.current);
       markerRef.current = null;
+    }
+    if (startMarkerRef.current && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(startMarkerRef.current);
+      startMarkerRef.current = null;
+    }
+    if (finishMarkerRef.current && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(finishMarkerRef.current);
+      finishMarkerRef.current = null;
     }
 
     watchIdRef.current = navigator.geolocation.watchPosition(
